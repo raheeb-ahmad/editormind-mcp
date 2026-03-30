@@ -1,7 +1,7 @@
 # Node
-node_modules/
+UnityPackage/Server~/node_modules/
+UnityPackage/Server~/package-lock.json
 npm-debug.log*
-package-lock.json
 
 # Unity
 UnityPackage/Library/
