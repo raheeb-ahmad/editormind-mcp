@@ -23,8 +23,6 @@ namespace EditorMind
         // ── State ─────────────────────────────────────────────────────────
         private string  _serverPath    = "";
         private string  _serverDir     = "";
-        private bool    _nodeInstalled = false;
-        private bool    _nodeChecked   = false;
         private bool    _serverOnline  = false;
         private bool    _configured    = false;
         private string  _statusMessage = "";
@@ -56,7 +54,7 @@ namespace EditorMind
         public static void OpenWindow()
         {
             var win = GetWindow<EditorMindWindow>(false, "EditorMind", true);
-            win.minSize = new Vector2(380, 520);
+            win.minSize = new Vector2(380, 480);
             win.Show();
         }
 
@@ -65,8 +63,6 @@ namespace EditorMind
         {
             _configured = EditorPrefs.GetBool(k_PrefsKey, false);
             ResolveServerPath();
-            CheckNodeAsync();
-            CheckNodeModulesAsync();
             EditorApplication.update += OnEditorUpdate;
         }
 
@@ -96,7 +92,14 @@ namespace EditorMind
                 {
                     string root = packageInfo.resolvedPath;
                     _serverDir  = Path.Combine(root, "Server~").Replace('\\', '/');
-                    _serverPath = Path.Combine(_serverDir, "bin", "editormind-mcp.js").Replace('\\', '/');
+
+#if UNITY_EDITOR_WIN
+                    _serverPath = Path.Combine(_serverDir, "bin", "editormind-mcp-win.exe").Replace('\\', '/');
+#elif UNITY_EDITOR_OSX
+                    _serverPath = Path.Combine(_serverDir, "bin", "editormind-mcp-macos").Replace('\\', '/');
+#else
+                    _serverPath = Path.Combine(_serverDir, "bin", "editormind-mcp-linux").Replace('\\', '/');
+#endif
                     return;
                 }
             }
@@ -104,69 +107,9 @@ namespace EditorMind
 
             string fallback = Path.GetFullPath(
                 Path.Combine(Application.dataPath,
-                    "../Packages/com.editormind.editormind-mcp/Server~/index.js"));
+                    "../Packages/com.editormind.editormind-mcp/Server~/bin/editormind-mcp-win.exe"));
             _serverPath = fallback.Replace('\\', '/');
-            _serverDir  = Path.GetDirectoryName(_serverPath).Replace('\\', '/');
-        }
-
-        // ── Node checks ───────────────────────────────────────────────────
-        private async void CheckNodeAsync()
-        {
-            _nodeInstalled = await Task.Run(() =>
-            {
-                try
-                {
-#if UNITY_EDITOR_WIN
-                    string nodePath = Path.Combine(
-                        Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
-                        "nodejs", "node.exe");
-
-                    if (!File.Exists(nodePath))
-                        nodePath = Path.Combine(
-                            Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
-                            "nodejs", "node.exe");
-
-                    if (!File.Exists(nodePath))
-                        nodePath = "node";
-#else
-                    string nodePath = "node";
-#endif
-                    var psi = new ProcessStartInfo(nodePath, "--version")
-                    {
-                        RedirectStandardOutput = true,
-                        UseShellExecute        = false,
-                        CreateNoWindow         = true
-                    };
-                    using var proc = Process.Start(psi);
-                    proc.WaitForExit(3000);
-                    return proc.ExitCode == 0;
-                }
-                catch { return false; }
-            });
-            _nodeChecked = true;
-            Repaint();
-        }
-
-        private async void CheckNodeModulesAsync()
-        {
-            if (string.IsNullOrEmpty(_serverDir)) return;
-
-            string modulesDir  = Path.Combine(_serverDir, "node_modules");
-            bool   needInstall = await Task.Run(() => !Directory.Exists(modulesDir));
-
-            if (needInstall)
-            {
-                _statusMessage = "Installing npm dependencies...";
-                _statusIsError = false;
-                Repaint();
-
-                bool ok = await Task.Run(() => RunNpm("install", _serverDir));
-                _statusMessage = ok
-                    ? "npm install completed."
-                    : "npm install failed. Check console for details.";
-                _statusIsError = !ok;
-                Repaint();
-            }
+            _serverDir  = Path.GetDirectoryName(Path.GetDirectoryName(_serverPath)).Replace('\\', '/');
         }
 
         // ── Server ping ───────────────────────────────────────────────────
@@ -231,40 +174,14 @@ namespace EditorMind
             GUILayout.Label("Status", EditorStyles.boldLabel);
             GUILayout.Space(4);
 
-            // Server path
+            // Server binary path
             EditorGUILayout.BeginHorizontal();
-            GUILayout.Label("Server path:", GUILayout.Width(100));
+            GUILayout.Label("Server binary:", GUILayout.Width(100));
             bool pathExists = File.Exists(_serverPath);
             GUI.color = pathExists ? Color.green : Color.red;
             GUILayout.Label(pathExists ? "Found" : "Not found", GUILayout.Width(70));
             GUI.color = Color.white;
             GUILayout.Label(_serverPath, EditorStyles.miniLabel);
-            EditorGUILayout.EndHorizontal();
-
-            // Node.js
-            EditorGUILayout.BeginHorizontal();
-            GUILayout.Label("Node.js:", GUILayout.Width(100));
-            if (!_nodeChecked)
-            {
-                GUILayout.Label("Checking...", EditorStyles.miniLabel);
-            }
-            else
-            {
-                GUI.color = _nodeInstalled ? Color.green : Color.red;
-                GUILayout.Label(_nodeInstalled ? "Installed" : "Not found", GUILayout.Width(70));
-                GUI.color = Color.white;
-                if (!_nodeInstalled)
-                    GUILayout.Label("Install from nodejs.org", EditorStyles.miniLabel);
-            }
-            EditorGUILayout.EndHorizontal();
-
-            // node_modules
-            EditorGUILayout.BeginHorizontal();
-            GUILayout.Label("node_modules:", GUILayout.Width(100));
-            bool hasModules = Directory.Exists(Path.Combine(_serverDir, "node_modules"));
-            GUI.color = hasModules ? Color.green : new Color(1f, 0.6f, 0f);
-            GUILayout.Label(hasModules ? "Present" : "Missing (installing...)", GUILayout.Width(160));
-            GUI.color = Color.white;
             EditorGUILayout.EndHorizontal();
 
             // Bridge ping
@@ -306,19 +223,18 @@ namespace EditorMind
             GUILayout.Label("Setup", EditorStyles.boldLabel);
             GUILayout.Space(4);
 
-            bool canConfigure = _nodeInstalled && File.Exists(_serverPath);
+            bool canConfigure = File.Exists(_serverPath);
 
             GUI.enabled = canConfigure;
             if (GUILayout.Button("Configure Claude Code", GUILayout.Height(30)))
                 RunConfigureCommand();
             GUI.enabled = true;
 
-            if (!canConfigure && _nodeChecked)
+            if (!canConfigure)
             {
-                string hint = !_nodeInstalled
-                    ? "Node.js not found. Install from nodejs.org and restart Unity."
-                    : "Server path not found. Ensure the package is installed correctly.";
-                EditorGUILayout.HelpBox(hint, MessageType.Warning);
+                EditorGUILayout.HelpBox(
+                    "Server binary not found. Reinstall the package via Package Manager.",
+                    MessageType.Warning);
             }
 
             GUILayout.Space(8);
@@ -365,8 +281,8 @@ namespace EditorMind
         }
 
         // ── Commands ──────────────────────────────────────────────────────
-       private string BuildClaudeCommand() =>
-    $"claude mcp add editormind-mcp --scope user --transport stdio -- node \"{_serverPath}\"";
+        private string BuildClaudeCommand() =>
+            $"claude mcp add editormind-mcp --scope user --transport stdio -- \"{_serverPath}\"";
 
         private void RunConfigureCommand()
         {
@@ -387,63 +303,6 @@ namespace EditorMind
         }
 
         // ── Process helpers ───────────────────────────────────────────────
-        private static bool RunNpm(string args, string workingDir)
-        {
-            try
-            {
-#if UNITY_EDITOR_WIN
-                string npmPath = Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
-                    "nodejs", "npm.cmd");
-
-                if (!File.Exists(npmPath))
-                    npmPath = Path.Combine(
-                        Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
-                        "nodejs", "npm.cmd");
-
-                string quotedDir = $"\"{workingDir}\"";
-                string cmdArgs   = $"/c cd /d {quotedDir} && \"{npmPath}\" {args}";
-
-                var psi = new ProcessStartInfo("cmd.exe", cmdArgs)
-                {
-                    UseShellExecute        = false,
-                    CreateNoWindow         = true,
-                    RedirectStandardOutput = true,
-                    RedirectStandardError  = true
-                };
-
-                using var proc   = Process.Start(psi);
-                string    stdout = proc.StandardOutput.ReadToEnd();
-                string    stderr = proc.StandardError.ReadToEnd();
-                proc.WaitForExit(60000);
-
-                if (!string.IsNullOrEmpty(stdout))
-                    UnityEngine.Debug.Log($"[EditorMind] npm: {stdout}");
-                if (!string.IsNullOrEmpty(stderr))
-                    UnityEngine.Debug.LogWarning($"[EditorMind] npm stderr: {stderr}");
-
-                return proc.ExitCode == 0;
-#else
-                var psi = new ProcessStartInfo("npm", args)
-                {
-                    WorkingDirectory       = workingDir,
-                    UseShellExecute        = false,
-                    CreateNoWindow         = true,
-                    RedirectStandardOutput = true,
-                    RedirectStandardError  = true
-                };
-                using var proc = Process.Start(psi);
-                proc.WaitForExit(60000);
-                return proc.ExitCode == 0;
-#endif
-            }
-            catch (Exception ex)
-            {
-                UnityEngine.Debug.LogError($"[EditorMind] npm error: {ex.Message}");
-                return false;
-            }
-        }
-
         private static bool RunClaudeCommand(string fullCommand)
         {
             try
