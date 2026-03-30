@@ -1,0 +1,19 @@
+# Node
+node_modules/
+npm-debug.log*
+package-lock.json
+
+# Unity
+UnityPackage/Library/
+UnityPackage/Temp/
+UnityPackage/Logs/
+UnityPackage/obj/
+UnityPackage/*.csproj
+UnityPackage/*.sln
+
+# OS
+.DS_Store
+Thumbs.db
+
+# VS Code
+.vscode/
