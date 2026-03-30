@@ -12,8 +12,7 @@ Built to be AI-agnostic: Claude Code today, other MCP clients in the future.
 
 ## Demo
 
-> GIF coming soon — shows Claude Code querying a live Unity scene hierarchy in real time.
-
+![EditorMind MCP Demo](docs/demo.gif)
 ---
 
 ## How it works
