@@ -1,0 +1,12 @@
+{
+  "name": "com.editormind.editormind-mcp",
+  "version": "1.0.0",
+  "displayName": "EditorMind MCP",
+  "description": "AI agent control for Unity Editor",
+  "unity": "2021.3",
+  "type": "tool",
+  "author": {
+    "name": "Raheeb Ahmad",
+    "url": "https://github.com/raheeb-ahmad"
+  }
+}

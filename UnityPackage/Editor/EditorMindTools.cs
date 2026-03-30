@@ -168,28 +168,22 @@ namespace EditorMind
 
         static string GetCompileErrors()
         {
-            var messages = CompilationPipeline.GetAssemblies();
-            // Collect errors from the Unity console via CompilerMessages.
-            var errors = new List<CompileError>();
-
-            foreach (var assembly in messages)
+            bool hasErrors = EditorUtility.scriptCompilationFailed;
+            var wrapper = new CompileErrorsResult
             {
-                foreach (var msg in assembly.compilerMessages)
-                {
-                    if (msg.type == CompilerMessageType.Error)
+                errors = hasErrors
+                    ? new CompileError[]
                     {
-                        errors.Add(new CompileError
-                        {
-                            message = msg.message,
-                            file    = msg.file,
-                            line    = msg.line,
-                            column  = msg.column
-                        });
-                    }
+                new CompileError
+                {
+                    message = "Compile errors detected. Check Unity Console for details.",
+                    file    = "",
+                    line    = 0,
+                    column  = 0
                 }
-            }
-
-            var wrapper = new CompileErrorsResult { errors = errors.ToArray() };
+                    }
+                    : new CompileError[0]
+            };
             return Ok(JsonUtility.ToJson(wrapper));
         }
 
