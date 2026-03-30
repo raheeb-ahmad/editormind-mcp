@@ -1,4 +1,4 @@
-name: Build Binaries
+name: Build and Commit Binaries
 
 on:
   push:
@@ -47,8 +47,33 @@ jobs:
           name: ${{ matrix.output }}
           path: UnityPackage/Server~/bin/${{ matrix.output }}
 
-  release:
+  commit-binaries:
     needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          lfs: true
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: UnityPackage/Server~/bin
+          merge-multiple: true
+
+      - name: Commit binaries
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add UnityPackage/Server~/bin/
+          git diff --staged --quiet || git commit -m "ci: update binaries [skip ci]"
+          git push origin HEAD:main
+
+  release:
+    needs: commit-binaries
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
 
