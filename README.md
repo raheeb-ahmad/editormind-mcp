@@ -2,7 +2,9 @@
 
 > AI agent control for Unity Editor via the Model Context Protocol.
 
-**editormind-mcp** bridges AI coding agents — currently Claude Code — with the Unity Editor. It exposes Unity Editor functionality as MCP tools, allowing an AI agent to inspect scenes, create GameObjects, read and write C# scripts, trigger compilation, and more, all through natural language.
+**editormind-mcp** bridges AI coding agents with the Unity Editor. It exposes Unity Editor functionality as MCP tools, allowing an AI agent to inspect scenes, create GameObjects, read and write C# scripts, trigger compilation, and more — all through natural language.
+
+No Node.js required. No terminal commands. Just install and click Configure.
 
 Built to be AI-agnostic: Claude Code today, other MCP clients in the future.
 
@@ -17,12 +19,12 @@ Built to be AI-agnostic: Claude Code today, other MCP clients in the future.
 ## How it works
 
 ```
-Claude Code  ──(MCP stdio)──►  EditorMind Server (Node.js, bundled)  ──(HTTP)──►  Unity Editor (C# Bridge)
+Claude Code  ──(MCP stdio)──►  EditorMind binary (bundled)  ──(HTTP)──►  Unity Editor (C# Bridge)
 ```
 
-- **Unity package** — an `[InitializeOnLoad]` C# class starts an HTTP listener on `localhost:6400` automatically when the Editor opens.
-- **MCP server** — bundled inside the package at `Server~/index.js`. No separate install needed.
-- **EditorMind window** — one-click configuration via `Tools → EditorMind`.
+- **Unity package** — an `[InitializeOnLoad]` C# class starts an HTTP listener on `localhost:6400` automatically when the Editor opens. Requests are processed on the main thread via a `ConcurrentQueue`, so responses arrive even when Unity is not in focus.
+- **Standalone binary** — a pre-compiled MCP server bundled inside the package. No Node.js or npm required on the user's machine.
+- **EditorMind window** — one-click setup via `Tools → EditorMind`. Auto-detects the binary and registers with Claude Code automatically.
 - **No internet required** — everything runs locally.
 
 ---
@@ -44,8 +46,9 @@ Claude Code  ──(MCP stdio)──►  EditorMind Server (Node.js, bundled)  �
 ## Requirements
 
 - Unity **2021.3**, **2022.3**, or **Unity 6** (URP or Built-in)
-- Node.js **18+** — download from [nodejs.org](https://nodejs.org)
 - Claude Code CLI — install from [claude.ai/code](https://claude.ai/code)
+
+No Node.js required.
 
 ---
 
@@ -75,13 +78,13 @@ In Unity, open:
 
 **Tools → EditorMind**
 
-Wait for all status indicators to turn green, then click **Configure Claude Code**.
+Wait for the Server binary and Bridge status to turn green, then click **Configure Claude Code**.
 
-The window will automatically register editormind-mcp with your Claude Code installation.
+The window automatically registers editormind-mcp with your Claude Code installation. No terminal commands needed.
 
 ### Step 3 — Start using it
 
-Click **Copy Project Path** in the EditorMind window, then open a terminal at your Unity project root and run:
+Click **Copy Project Path** in the EditorMind window, open a terminal at your Unity project root and run:
 
 ```bash
 claude
@@ -111,10 +114,8 @@ Are there any compile errors in my project?
 
 Open via **Tools → EditorMind**. The window shows:
 
-- **Server path** — auto-detected location of the bundled Node.js server
-- **Node.js** — checks if Node.js is installed
-- **node_modules** — auto-installs dependencies on first open
-- **Bridge** — live ping to the HTTP bridge (updates every 2 seconds)
+- **Server binary** — auto-detected path to the bundled executable
+- **Bridge** — live ping to the HTTP listener (updates every 2 seconds)
 - **Claude MCP** — whether Claude Code has been configured
 - **Available tools** — list of all 7 tools
 - **Copy Project Path** — copies your Unity project path for opening Claude Code
@@ -140,24 +141,49 @@ editormind-mcp/
 │   │   ├── EditorMindBridge.cs     # HTTP listener, boots with Unity
 │   │   ├── EditorMindTools.cs      # Tool handlers
 │   │   └── EditorMindWindow.cs     # Tools → EditorMind setup window
-│   ├── Server~/                    # Bundled Node.js MCP server (hidden from Unity importer)
+│   ├── Server~/                    # Bundled MCP server source (hidden from Unity importer)
 │   │   ├── index.js
-│   │   └── package.json
+│   │   ├── package.json
+│   │   └── bin/
+│   │       ├── editormind-mcp-win.exe    # Windows binary
+│   │       ├── editormind-mcp-macos      # macOS binary
+│   │       └── editormind-mcp-linux      # Linux binary
 │   └── package.json                # Unity Package Manager manifest
+├── .github/
+│   └── workflows/
+│       └── build.yml               # CI/CD — auto-builds binaries on release
 ├── .gitignore
 └── README.md
 ```
 
 ---
 
+## CI/CD
+
+Binaries are automatically built for all three platforms via GitHub Actions on every release tag. To trigger a new build:
+
+```bash
+git tag v1.x.x
+git push origin v1.x.x
+```
+
+GitHub Actions compiles `editormind-mcp-win.exe`, `editormind-mcp-macos`, and `editormind-mcp-linux` using Bun and commits them back to the repo automatically.
+
+---
+
 ## Roadmap
 
-- [ ] Support for Cursor and other MCP clients
-- [ ] `get_asset_list` — list assets by type
-- [ ] `add_component` — add a component to a selected GameObject
-- [ ] `run_tests` — execute Unity Test Runner and return results
-- [ ] `take_screenshot` — capture the Scene or Game view
-- [ ] npm publish for `npx` installation
+**Coming soon:**
+- Screenshot capture from Scene and Game view
+- Run Unity Test Runner and return results
+- Add and modify components on GameObjects
+- Support for Cursor, Gemini, Copilot and other MCP clients
+
+**Long term vision:**
+- Runtime AI — control game systems and NPCs while the game is playing
+- Playtesting agent — AI plays your game autonomously and reports bugs
+- Project-wide refactoring — AI understands your full codebase architecture
+- Voice prompts — speak to your Editor instead of typing
 
 ---
 
