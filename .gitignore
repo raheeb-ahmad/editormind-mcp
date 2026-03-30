@@ -17,3 +17,9 @@ Thumbs.db
 
 # VS Code
 .vscode/
+
+#Binaries
+UnityPackage/Server~/bin/*.exe
+UnityPackage/Server~/bin/editormind-mcp-linux
+UnityPackage/Server~/bin/editormind-mcp-macos
+UnityPackage/Server~/bin/editormind-mcp.js

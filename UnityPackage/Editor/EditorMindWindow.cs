@@ -96,7 +96,7 @@ namespace EditorMind
                 {
                     string root = packageInfo.resolvedPath;
                     _serverDir  = Path.Combine(root, "Server~").Replace('\\', '/');
-                    _serverPath = Path.Combine(_serverDir, "index.js").Replace('\\', '/');
+                    _serverPath = Path.Combine(_serverDir, "bin", "editormind-mcp.js").Replace('\\', '/');
                     return;
                 }
             }
@@ -365,8 +365,8 @@ namespace EditorMind
         }
 
         // ── Commands ──────────────────────────────────────────────────────
-        private string BuildClaudeCommand() =>
-            $"claude mcp add editormind-mcp --scope user --transport stdio -- node \"{_serverPath}\"";
+       private string BuildClaudeCommand() =>
+    $"claude mcp add editormind-mcp --scope user --transport stdio -- node \"{_serverPath}\"";
 
         private void RunConfigureCommand()
         {
