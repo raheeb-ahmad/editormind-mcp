@@ -1,8 +1,10 @@
 using System;
+using System.Collections.Concurrent;
 using System.IO;
 using System.Net;
 using System.Text;
 using System.Threading;
+using System.Threading.Tasks;
 using UnityEditor;
 using UnityEngine;
 
@@ -15,11 +17,33 @@ namespace EditorMind
 
         static HttpListener _listener;
         static Thread _thread;
+        static readonly ConcurrentQueue<Action> _mainThreadQueue = new ConcurrentQueue<Action>();
 
         static EditorMindBridge()
         {
+            EditorApplication.update += DrainMainThreadQueue;
+            AssemblyReloadEvents.beforeAssemblyReload += OnBeforeAssemblyReload;
             StartListener();
             EditorApplication.quitting += StopListener;
+        }
+
+        static void DrainMainThreadQueue()
+        {
+            while (_mainThreadQueue.TryDequeue(out Action action))
+            {
+                try { action(); }
+                catch (Exception ex) { Debug.LogWarning("[EditorMind] Main thread action threw: " + ex.Message); }
+            }
+        }
+
+        static void OnBeforeAssemblyReload()
+        {
+            EditorApplication.update -= DrainMainThreadQueue;
+            AssemblyReloadEvents.beforeAssemblyReload -= OnBeforeAssemblyReload;
+            StopListener();
+
+            // Drain and cancel any pending work so background threads don't hang.
+            while (_mainThreadQueue.TryDequeue(out _)) { }
         }
 
         static void StartListener()
@@ -99,33 +123,18 @@ namespace EditorMind
                     using (var reader = new StreamReader(ctx.Request.InputStream, Encoding.UTF8))
                         body = reader.ReadToEnd();
 
-                    // Dispatch runs on the main thread; block until it completes.
-                    string result = null;
-                    Exception dispatchError = null;
-                    var done = new ManualResetEventSlim(false);
+                    // Enqueue dispatch onto the main thread via EditorApplication.update so it
+                    // completes even when Unity is not in focus (delayCall throttles when unfocused).
+                    var tcs = new TaskCompletionSource<string>();
 
-                    EditorApplication.delayCall += () =>
+                    _mainThreadQueue.Enqueue(() =>
                     {
-                        try   { result = EditorMindTools.Dispatch(body); }
-                        catch (Exception ex) { dispatchError = ex; }
-                        finally { done.Set(); }
-                    };
+                        try   { tcs.SetResult(EditorMindTools.Dispatch(body)); }
+                        catch (Exception ex) { tcs.SetException(ex); }
+                    });
 
-                    done.Wait();
-
-                    if (dispatchError != null)
-                    {
-                        statusCode = 500;
-                        responseJson = JsonUtility.ToJson(new ErrorResponse
-                        {
-                            ok = false,
-                            error = dispatchError.Message
-                        });
-                    }
-                    else
-                    {
-                        responseJson = result;
-                    }
+                    // Block the pool thread until the main thread finishes the dispatch.
+                    responseJson = tcs.Task.GetAwaiter().GetResult();
                 }
             }
             catch (Exception ex)
