@@ -17,11 +17,12 @@ Built to be AI-agnostic: Claude Code today, other MCP clients in the future.
 ## How it works
 
 ```
-Claude Code  ──(MCP stdio)──►  editormind-mcp Server (Node.js)  ──(HTTP)──►  Unity Editor (C# Bridge)
+Claude Code  ──(MCP stdio)──►  EditorMind Server (Node.js, bundled)  ──(HTTP)──►  Unity Editor (C# Bridge)
 ```
 
 - **Unity package** — an `[InitializeOnLoad]` C# class starts an HTTP listener on `localhost:6400` automatically when the Editor opens.
-- **MCP server** — a Node.js process that speaks the MCP protocol to Claude Code and forwards tool calls to the Unity bridge.
+- **MCP server** — bundled inside the package at `Server~/index.js`. No separate install needed.
+- **EditorMind window** — one-click configuration via `Tools → EditorMind`.
 - **No internet required** — everything runs locally.
 
 ---
@@ -43,61 +44,54 @@ Claude Code  ──(MCP stdio)──►  editormind-mcp Server (Node.js)  ──
 ## Requirements
 
 - Unity **2021.3**, **2022.3**, or **Unity 6** (URP or Built-in)
-- Node.js **18+**
-- Claude Code CLI
+- Node.js **18+** — download from [nodejs.org](https://nodejs.org)
+- Claude Code CLI — install from [claude.ai/code](https://claude.ai/code)
 
 ---
 
 ## Installation
 
-### 1. Clone the repository
+### Step 1 — Install the Unity package
 
-```bash
-git clone https://github.com/raheeb-ahmad/editormind-mcp
-cd editormind-mcp/Server
-npm install
+Open your Unity project, go to:
+
+**Window → Package Manager → + → Add package from git URL**
+
+Paste this URL:
+
+```
+https://github.com/raheeb-ahmad/editormind-mcp.git?path=UnityPackage
 ```
 
-### 2. Install the Unity package
-
-Open your Unity project's `Packages/manifest.json` and add:
-
-```json
-{
-  "dependencies": {
-    "com.editormind.editormind-mcp": "file:/absolute/path/to/editormind-mcp/UnityPackage"
-  }
-}
-```
-
-Save the file. Unity will compile automatically. Check the Console for:
+Unity will compile automatically. Check the Console for:
 
 ```
 [EditorMind] Listening on http://localhost:6400/
 ```
 
-### 3. Register with Claude Code
+### Step 2 — Configure Claude Code
+
+In Unity, open:
+
+**Tools → EditorMind**
+
+Wait for all status indicators to turn green, then click **Configure Claude Code**.
+
+The window will automatically register editormind-mcp with your Claude Code installation.
+
+### Step 3 — Start using it
+
+Click **Copy Project Path** in the EditorMind window, then open a terminal at your Unity project root and run:
 
 ```bash
-claude mcp add editormind-mcp \
-  --scope user \
-  --transport stdio \
-  -- node "/absolute/path/to/editormind-mcp/Server/index.js"
+claude
 ```
 
-Verify:
-
-```bash
-claude mcp list
-```
-
-You should see `editormind-mcp` listed as connected.
+That's it. Start prompting.
 
 ---
 
-## Usage
-
-Open Claude Code in any directory and ask:
+## Usage examples
 
 ```
 What GameObjects are in my current Unity scene?
@@ -107,7 +101,23 @@ Create a GameObject called EnemySpawner
 Read the script at Assets/Scripts/PlayerMovement.cs and add a sprint mechanic
 
 Trigger a recompile in Unity
+
+Are there any compile errors in my project?
 ```
+
+---
+
+## EditorMind window
+
+Open via **Tools → EditorMind**. The window shows:
+
+- **Server path** — auto-detected location of the bundled Node.js server
+- **Node.js** — checks if Node.js is installed
+- **node_modules** — auto-installs dependencies on first open
+- **Bridge** — live ping to the HTTP bridge (updates every 2 seconds)
+- **Claude MCP** — whether Claude Code has been configured
+- **Available tools** — list of all 7 tools
+- **Copy Project Path** — copies your Unity project path for opening Claude Code
 
 ---
 
@@ -121,30 +131,19 @@ netsh http add urlacl url=http://localhost:6400/ user=Everyone
 
 ---
 
-## Cloning on a new machine
-
-```bash
-git clone https://github.com/raheeb-ahmad/editormind-mcp
-cd editormind-mcp/Server
-npm install
-```
-
-Then repeat steps 2 and 3 above with the correct local path.
-
----
-
 ## Project structure
 
 ```
 editormind-mcp/
 ├── UnityPackage/
 │   ├── Editor/
-│   │   ├── EditorMindBridge.cs   # HTTP listener, boots with Unity
-│   │   └── EditorMindTools.cs    # Tool handlers
-│   └── package.json              # Unity Package Manager manifest
-├── Server/
-│   ├── index.js                  # MCP server entry point
-│   └── package.json
+│   │   ├── EditorMindBridge.cs     # HTTP listener, boots with Unity
+│   │   ├── EditorMindTools.cs      # Tool handlers
+│   │   └── EditorMindWindow.cs     # Tools → EditorMind setup window
+│   ├── Server~/                    # Bundled Node.js MCP server (hidden from Unity importer)
+│   │   ├── index.js
+│   │   └── package.json
+│   └── package.json                # Unity Package Manager manifest
 ├── .gitignore
 └── README.md
 ```
