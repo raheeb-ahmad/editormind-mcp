@@ -1,6 +1,6 @@
 {
   "name": "com.editormind.editormind-mcp",
-  "version": "1.0.0",
+  "version": "1.0.10",
   "displayName": "EditorMind MCP",
   "description": "AI agent control for Unity Editor",
   "unity": "2021.3",
