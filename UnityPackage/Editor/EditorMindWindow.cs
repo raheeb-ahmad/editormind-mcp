@@ -23,8 +23,8 @@ namespace EditorMind
         private const string k_PrefLatestVersion = "EditorMind_LatestVersion";
         private const string k_PrefReleaseNotes  = "EditorMind_ReleaseNotes";
         private const string k_PrefLastCheck     = "EditorMind_LastCheckTime";
-        private const long   k_CheckIntervalSec  = 3600; // 1 hour
-        private const string k_ReleasesUrl         = "https://github.com/raheeb-ahmad/editormind-mcp/releases/latest";
+        private const long   k_CheckIntervalSec  = 3600;
+        private const string k_ReleasesUrl        = "https://github.com/raheeb-ahmad/editormind-mcp/releases/latest";
         private const string k_GitHubApiUrl       = "https://api.github.com/repos/raheeb-ahmad/editormind-mcp/releases/latest";
         private const string k_GitHubDownloadBase = "https://github.com/raheeb-ahmad/editormind-mcp/releases/latest/download/";
 
@@ -39,7 +39,7 @@ namespace EditorMind
         private bool    _pingInFlight  = false;
         private Vector2 _scroll;
 
-        // ── Version check state ────────────────────────────────────────────
+        // ── Version check state ───────────────────────────────────────────
         private string _currentVersion  = "";
         private string _latestVersion   = "";
         private string _releaseNotes    = "";
@@ -49,7 +49,6 @@ namespace EditorMind
         // ── Download state ────────────────────────────────────────────────
         private bool  _isDownloading    = false;
         private float _downloadProgress = 0f;
-        private bool  _binaryDownloaded = false;
 
         // ── Style cache ───────────────────────────────────────────────────
         private GUIStyle _styleHeading;
@@ -122,7 +121,6 @@ namespace EditorMind
 
         private void ResolveServerPath()
         {
-            // Prefer the user-downloaded binary in persistentDataPath.
             string persistentPath = GetPersistentBinaryPath();
             if (File.Exists(persistentPath))
             {
@@ -131,7 +129,6 @@ namespace EditorMind
                 return;
             }
 
-            // Fall back to the binary shipped inside the package.
             try
             {
                 var packageInfo = UnityEditor.PackageManager.PackageInfo
@@ -139,7 +136,7 @@ namespace EditorMind
 
                 if (packageInfo != null)
                 {
-                    string root = packageInfo.resolvedPath;
+                    string root  = packageInfo.resolvedPath;
                     _serverDir   = Path.Combine(root, "Server~").Replace('\\', '/');
                     _packageName = packageInfo.name;
                     _serverPath  = Path.Combine(_serverDir, "bin", PlatformBinaryName).Replace('\\', '/');
@@ -148,11 +145,11 @@ namespace EditorMind
             }
             catch { }
 
-            string fallback = Path.GetFullPath(
-                Path.Combine(Application.dataPath,
-                    "../Packages/com.editormind.editormind-mcp/Server~/bin/editormind-mcp-win.exe"));
-            _serverPath = fallback.Replace('\\', '/');
-            _serverDir  = Path.GetDirectoryName(Path.GetDirectoryName(_serverPath)).Replace('\\', '/');
+            string fallback = Path.Combine(Application.dataPath,
+                "..", "Packages", "com.editormind.editormind-mcp",
+                "Server~", "bin", PlatformBinaryName);
+            _serverPath = Path.GetFullPath(fallback).Replace('\\', '/');
+            _serverDir  = Path.GetDirectoryName(_serverPath).Replace('\\', '/');
         }
 
         // ── Server ping ───────────────────────────────────────────────────
@@ -176,7 +173,7 @@ namespace EditorMind
         // ── Version check ─────────────────────────────────────────────────
         private async void CheckVersionAsync()
         {
-            // Read current package version.
+            // Step 1 — PackageInfo (works for git URL installs)
             try
             {
                 var pkg = UnityEditor.PackageManager.PackageInfo
@@ -189,13 +186,64 @@ namespace EditorMind
             }
             catch { }
 
-            // Restore cached values so the UI can show them immediately.
-            _latestVersion   = EditorPrefs.GetString(k_PrefLatestVersion, "");
-            _releaseNotes    = EditorPrefs.GetString(k_PrefReleaseNotes, "");
+            // Step 2 — PackageCache scan (works for both git URL and local installs)
+            if (string.IsNullOrEmpty(_currentVersion))
+            {
+                try
+                {
+                    string cacheDir = new System.Uri(
+                        Application.dataPath + "/../Library/PackageCache/").LocalPath;
+
+                    if (Directory.Exists(cacheDir))
+                    {
+                        foreach (string dir in Directory.GetDirectories(
+                            cacheDir, "com.editormind.editormind-mcp*"))
+                        {
+                            string pkgJson = Path.Combine(dir, "package.json");
+                            if (File.Exists(pkgJson))
+                            {
+                                string ver = ExtractJsonString(
+                                    File.ReadAllText(pkgJson), "version");
+                                if (!string.IsNullOrEmpty(ver))
+                                {
+                                    _currentVersion = ver;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+                catch { }
+            }
+
+            // Step 3 — Packages folder (works for local file: installs)
+            if (string.IsNullOrEmpty(_currentVersion))
+            {
+                try
+                {
+                    string projectRoot = new System.Uri(
+                        Application.dataPath + "/../").LocalPath;
+                    string pkgJson = Path.Combine(projectRoot, "Packages",
+                        "com.editormind.editormind-mcp", "package.json");
+
+                    if (File.Exists(pkgJson))
+                    {
+                        string ver = ExtractJsonString(
+                            File.ReadAllText(pkgJson), "version");
+                        if (!string.IsNullOrEmpty(ver))
+                            _currentVersion = ver;
+                    }
+                }
+                catch { }
+            }
+
+            // Restore cached latest version
+            _latestVersion = EditorPrefs.GetString(k_PrefLatestVersion, "");
+            _releaseNotes  = EditorPrefs.GetString(k_PrefReleaseNotes, "");
             if (!string.IsNullOrEmpty(_latestVersion) && !string.IsNullOrEmpty(_currentVersion))
                 _updateAvailable = IsNewer(_latestVersion, _currentVersion);
 
-            // Only hit the API if the cache is older than one hour.
+            // Check rate limit cache
             long lastCheck = 0;
             long.TryParse(EditorPrefs.GetString(k_PrefLastCheck, "0"), out lastCheck);
             long now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
@@ -205,7 +253,7 @@ namespace EditorMind
                 return;
             }
 
-            // Fetch from GitHub in the background.
+            // Fetch from GitHub
             try
             {
                 using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
@@ -219,7 +267,6 @@ namespace EditorMind
                 {
                     _latestVersion = tag;
                     _releaseNotes  = notes;
-
                     EditorPrefs.SetString(k_PrefLatestVersion, _latestVersion);
                     EditorPrefs.SetString(k_PrefReleaseNotes,  _releaseNotes);
                     EditorPrefs.SetString(k_PrefLastCheck,     now.ToString());
@@ -228,7 +275,7 @@ namespace EditorMind
                         _updateAvailable = IsNewer(_latestVersion, _currentVersion);
                 }
             }
-            catch { /* network unavailable — use cached values */ }
+            catch { }
 
             Repaint();
         }
@@ -240,7 +287,7 @@ namespace EditorMind
             _downloadProgress = 0f;
             Repaint();
 
-            string binaryName = PlatformBinaryName;
+            string binaryName  = PlatformBinaryName;
             string downloadUrl = k_GitHubDownloadBase + binaryName;
             string destPath    = GetPersistentBinaryPath();
 
@@ -251,14 +298,16 @@ namespace EditorMind
                 using var client = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
                 client.DefaultRequestHeaders.Add("User-Agent", "editormind-mcp-unity");
 
-                using var response = await client.GetAsync(downloadUrl, HttpCompletionOption.ResponseHeadersRead);
+                using var response = await client.GetAsync(
+                    downloadUrl, HttpCompletionOption.ResponseHeadersRead);
                 response.EnsureSuccessStatusCode();
 
                 long total = response.Content.Headers.ContentLength ?? -1;
                 using var stream = await response.Content.ReadAsStreamAsync();
-                using var fs     = new FileStream(destPath, FileMode.Create, FileAccess.Write, FileShare.None);
+                using var fs     = new FileStream(destPath, FileMode.Create,
+                    FileAccess.Write, FileShare.None);
 
-                byte[] buffer   = new byte[81920]; // 80 KB chunks
+                byte[] buffer   = new byte[81920];
                 long   received = 0;
                 int    read;
                 while ((read = await stream.ReadAsync(buffer, 0, buffer.Length)) > 0)
@@ -279,9 +328,8 @@ namespace EditorMind
                 using var chmodProc = Process.Start(chmod);
                 chmodProc?.WaitForExit(5000);
 #endif
-                _binaryDownloaded = true;
-                _statusMessage    = "Server binary downloaded successfully.";
-                _statusIsError    = false;
+                _statusMessage = "Server binary downloaded successfully.";
+                _statusIsError = false;
             }
             catch (Exception ex)
             {
@@ -299,6 +347,7 @@ namespace EditorMind
             Repaint();
         }
 
+        // ── JSON helpers ──────────────────────────────────────────────────
         private static string ExtractJsonString(string json, string key)
         {
             string search = $"\"{key}\":\"";
@@ -382,7 +431,7 @@ namespace EditorMind
 
                 EditorGUILayout.BeginHorizontal();
                 if (GUILayout.Button("Update", GUILayout.Height(22)))
-                    Application.OpenURL("https://github.com/raheeb-ahmad/editormind-mcp/releases/latest");
+                    Application.OpenURL(k_ReleasesUrl);
                 if (GUILayout.Button("Release notes", GUILayout.Height(22)))
                     Application.OpenURL(k_ReleasesUrl);
                 EditorGUILayout.EndHorizontal();
@@ -396,7 +445,6 @@ namespace EditorMind
             GUILayout.Label("Status", EditorStyles.boldLabel);
             GUILayout.Space(4);
 
-            // Server binary path
             bool pathExists = File.Exists(_serverPath);
             EditorGUILayout.BeginHorizontal();
             GUILayout.Label("Server binary:", GUILayout.Width(100));
@@ -428,7 +476,6 @@ namespace EditorMind
                     $"Downloading... {Mathf.RoundToInt(_downloadProgress * 100)}%");
             }
 
-            // Bridge ping
             EditorGUILayout.BeginHorizontal();
             GUILayout.Label("Bridge:", GUILayout.Width(100));
             GUI.color = _serverOnline ? Color.green : Color.red;
@@ -437,7 +484,6 @@ namespace EditorMind
             GUILayout.Label("(port 6400)", EditorStyles.miniLabel);
             EditorGUILayout.EndHorizontal();
 
-            // Claude MCP
             EditorGUILayout.BeginHorizontal();
             GUILayout.Label("Claude MCP:", GUILayout.Width(100));
             GUI.color = _configured ? Color.green : new Color(0.7f, 0.7f, 0.7f);
@@ -477,7 +523,7 @@ namespace EditorMind
             if (!canConfigure)
             {
                 EditorGUILayout.HelpBox(
-                    "Server binary not found. Reinstall the package via Package Manager.",
+                    "Server binary not found. Click Download Server above.",
                     MessageType.Warning);
             }
 
@@ -559,7 +605,6 @@ namespace EditorMind
                 if (!File.Exists(claudePath))
                     claudePath = "claude";
 
-                // Remove existing registration first to avoid conflict
                 var removePsi = new ProcessStartInfo(claudePath, "mcp remove editormind-mcp")
                 {
                     UseShellExecute        = false,
@@ -570,11 +615,7 @@ namespace EditorMind
                 using var removeProc = Process.Start(removePsi);
                 removeProc.WaitForExit(5000);
 
-                // Now add fresh
                 string claudeArgs = fullCommand.Substring(fullCommand.IndexOf("mcp "));
-                UnityEngine.Debug.Log($"[EditorMind] Claude path: {claudePath}");
-                UnityEngine.Debug.Log($"[EditorMind] Claude args: {claudeArgs}");
-
                 var psi = new ProcessStartInfo(claudePath, claudeArgs)
                 {
                     UseShellExecute        = false,
@@ -644,4 +685,6 @@ namespace EditorMind
             _stylesBuilt = true;
         }
     }
+
+    public class EditorMindWindowHelper : ScriptableObject { }
 }
