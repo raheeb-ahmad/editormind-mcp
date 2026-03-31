@@ -20,6 +20,13 @@ namespace EditorMind
         private const string k_ServerPort   = "http://localhost:6400";
         private const double k_PingInterval = 2.0;
 
+        private const string k_PrefLatestVersion = "EditorMind_LatestVersion";
+        private const string k_PrefReleaseNotes  = "EditorMind_ReleaseNotes";
+        private const string k_PrefLastCheck     = "EditorMind_LastCheckTime";
+        private const long   k_CheckIntervalSec  = 3600; // 1 hour
+        private const string k_ReleasesUrl       = "https://github.com/raheeb-ahmad/editormind-mcp/releases/latest";
+        private const string k_GitHubApiUrl      = "https://api.github.com/repos/raheeb-ahmad/editormind-mcp/releases/latest";
+
         // ── State ─────────────────────────────────────────────────────────
         private string  _serverPath    = "";
         private string  _serverDir     = "";
@@ -30,6 +37,13 @@ namespace EditorMind
         private double  _nextPingTime  = 0;
         private bool    _pingInFlight  = false;
         private Vector2 _scroll;
+
+        // ── Version check state ────────────────────────────────────────────
+        private string _currentVersion  = "";
+        private string _latestVersion   = "";
+        private string _releaseNotes    = "";
+        private bool   _updateAvailable = false;
+        private string _packageName     = "com.editormind.editormind-mcp";
 
         // ── Style cache ───────────────────────────────────────────────────
         private GUIStyle _styleHeading;
@@ -64,6 +78,7 @@ namespace EditorMind
             _configured = EditorPrefs.GetBool(k_PrefsKey, false);
             ResolveServerPath();
             EditorApplication.update += OnEditorUpdate;
+            CheckVersionAsync();
         }
 
         private void OnDisable()
@@ -91,7 +106,8 @@ namespace EditorMind
                 if (packageInfo != null)
                 {
                     string root = packageInfo.resolvedPath;
-                    _serverDir  = Path.Combine(root, "Server~").Replace('\\', '/');
+                    _serverDir   = Path.Combine(root, "Server~").Replace('\\', '/');
+                    _packageName = packageInfo.name;
 
 #if UNITY_EDITOR_WIN
                     _serverPath = Path.Combine(_serverDir, "bin", "editormind-mcp-win.exe").Replace('\\', '/');
@@ -128,6 +144,103 @@ namespace EditorMind
             _serverOnline = online;
             _pingInFlight = false;
             Repaint();
+        }
+
+        // ── Version check ─────────────────────────────────────────────────
+        private async void CheckVersionAsync()
+        {
+            // Read current package version.
+            try
+            {
+                var pkg = UnityEditor.PackageManager.PackageInfo
+                    .FindForAssembly(Assembly.GetExecutingAssembly());
+                if (pkg != null)
+                {
+                    _currentVersion = pkg.version;
+                    _packageName    = pkg.name;
+                }
+            }
+            catch { }
+
+            // Restore cached values so the UI can show them immediately.
+            _latestVersion   = EditorPrefs.GetString(k_PrefLatestVersion, "");
+            _releaseNotes    = EditorPrefs.GetString(k_PrefReleaseNotes, "");
+            if (!string.IsNullOrEmpty(_latestVersion) && !string.IsNullOrEmpty(_currentVersion))
+                _updateAvailable = IsNewer(_latestVersion, _currentVersion);
+
+            // Only hit the API if the cache is older than one hour.
+            long lastCheck = 0;
+            long.TryParse(EditorPrefs.GetString(k_PrefLastCheck, "0"), out lastCheck);
+            long now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            if (now - lastCheck < k_CheckIntervalSec)
+            {
+                Repaint();
+                return;
+            }
+
+            // Fetch from GitHub in the background.
+            try
+            {
+                using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
+                client.DefaultRequestHeaders.Add("User-Agent", "editormind-mcp-unity");
+                string json = await client.GetStringAsync(k_GitHubApiUrl);
+
+                string tag   = ExtractJsonString(json, "tag_name");
+                string notes = ExtractJsonString(json, "body");
+
+                if (!string.IsNullOrEmpty(tag))
+                {
+                    _latestVersion = tag;
+                    _releaseNotes  = notes;
+
+                    EditorPrefs.SetString(k_PrefLatestVersion, _latestVersion);
+                    EditorPrefs.SetString(k_PrefReleaseNotes,  _releaseNotes);
+                    EditorPrefs.SetString(k_PrefLastCheck,     now.ToString());
+
+                    if (!string.IsNullOrEmpty(_currentVersion))
+                        _updateAvailable = IsNewer(_latestVersion, _currentVersion);
+                }
+            }
+            catch { /* network unavailable — use cached values */ }
+
+            Repaint();
+        }
+
+        private static string ExtractJsonString(string json, string key)
+        {
+            string search = $"\"{key}\":\"";
+            int start = json.IndexOf(search, StringComparison.Ordinal);
+            if (start < 0) return "";
+            start += search.Length;
+            var sb = new System.Text.StringBuilder();
+            for (int i = start; i < json.Length; i++)
+            {
+                char c = json[i];
+                if (c == '\\' && i + 1 < json.Length)
+                {
+                    char next = json[++i];
+                    switch (next)
+                    {
+                        case '"':  sb.Append('"');  break;
+                        case '\\': sb.Append('\\'); break;
+                        case 'n':  sb.Append('\n'); break;
+                        case 'r':  sb.Append('\r'); break;
+                        case 't':  sb.Append('\t'); break;
+                        default:   sb.Append(next); break;
+                    }
+                }
+                else if (c == '"') break;
+                else sb.Append(c);
+            }
+            return sb.ToString();
+        }
+
+        private static bool IsNewer(string latest, string current)
+        {
+            static string Strip(string v) => v.TrimStart('v', 'V').Split('-')[0];
+            return Version.TryParse(Strip(latest),  out var lv)
+                && Version.TryParse(Strip(current), out var cv)
+                && lv > cv;
         }
 
         // ── IMGUI ─────────────────────────────────────────────────────────
@@ -167,6 +280,22 @@ namespace EditorMind
             GUILayout.Label("EditorMind MCP", _styleHeading);
             GUILayout.Label("Unity AI Bridge for Claude Code", EditorStyles.centeredGreyMiniLabel);
             GUILayout.Space(2);
+
+            if (_updateAvailable)
+            {
+                EditorGUILayout.HelpBox(
+                    $"Update available: {_latestVersion} — you have v{_currentVersion}",
+                    MessageType.Warning);
+
+                EditorGUILayout.BeginHorizontal();
+                if (GUILayout.Button("Update", GUILayout.Height(22)))
+                    Application.OpenURL("https://github.com/raheeb-ahmad/editormind-mcp/releases/latest");
+                if (GUILayout.Button("Release notes", GUILayout.Height(22)))
+                    Application.OpenURL(k_ReleasesUrl);
+                EditorGUILayout.EndHorizontal();
+
+                GUILayout.Space(4);
+            }
         }
 
         private void DrawDiagnostics()
