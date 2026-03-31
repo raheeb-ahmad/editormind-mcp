@@ -24,8 +24,9 @@ namespace EditorMind
         private const string k_PrefReleaseNotes  = "EditorMind_ReleaseNotes";
         private const string k_PrefLastCheck     = "EditorMind_LastCheckTime";
         private const long   k_CheckIntervalSec  = 3600; // 1 hour
-        private const string k_ReleasesUrl       = "https://github.com/raheeb-ahmad/editormind-mcp/releases/latest";
-        private const string k_GitHubApiUrl      = "https://api.github.com/repos/raheeb-ahmad/editormind-mcp/releases/latest";
+        private const string k_ReleasesUrl         = "https://github.com/raheeb-ahmad/editormind-mcp/releases/latest";
+        private const string k_GitHubApiUrl       = "https://api.github.com/repos/raheeb-ahmad/editormind-mcp/releases/latest";
+        private const string k_GitHubDownloadBase = "https://github.com/raheeb-ahmad/editormind-mcp/releases/latest/download/";
 
         // ── State ─────────────────────────────────────────────────────────
         private string  _serverPath    = "";
@@ -44,6 +45,11 @@ namespace EditorMind
         private string _releaseNotes    = "";
         private bool   _updateAvailable = false;
         private string _packageName     = "com.editormind.editormind-mcp";
+
+        // ── Download state ────────────────────────────────────────────────
+        private bool  _isDownloading    = false;
+        private float _downloadProgress = 0f;
+        private bool  _binaryDownloaded = false;
 
         // ── Style cache ───────────────────────────────────────────────────
         private GUIStyle _styleHeading;
@@ -96,8 +102,36 @@ namespace EditorMind
         }
 
         // ── Path detection ────────────────────────────────────────────────
+        private static string PlatformBinaryName
+        {
+            get
+            {
+#if UNITY_EDITOR_WIN
+                return "editormind-mcp-win.exe";
+#elif UNITY_EDITOR_OSX
+                return "editormind-mcp-macos";
+#else
+                return "editormind-mcp-linux";
+#endif
+            }
+        }
+
+        private static string GetPersistentBinaryPath() =>
+            Path.Combine(Application.persistentDataPath, "EditorMind", "bin", PlatformBinaryName)
+                .Replace('\\', '/');
+
         private void ResolveServerPath()
         {
+            // Prefer the user-downloaded binary in persistentDataPath.
+            string persistentPath = GetPersistentBinaryPath();
+            if (File.Exists(persistentPath))
+            {
+                _serverPath = persistentPath;
+                _serverDir  = Path.GetDirectoryName(persistentPath).Replace('\\', '/');
+                return;
+            }
+
+            // Fall back to the binary shipped inside the package.
             try
             {
                 var packageInfo = UnityEditor.PackageManager.PackageInfo
@@ -108,14 +142,7 @@ namespace EditorMind
                     string root = packageInfo.resolvedPath;
                     _serverDir   = Path.Combine(root, "Server~").Replace('\\', '/');
                     _packageName = packageInfo.name;
-
-#if UNITY_EDITOR_WIN
-                    _serverPath = Path.Combine(_serverDir, "bin", "editormind-mcp-win.exe").Replace('\\', '/');
-#elif UNITY_EDITOR_OSX
-                    _serverPath = Path.Combine(_serverDir, "bin", "editormind-mcp-macos").Replace('\\', '/');
-#else
-                    _serverPath = Path.Combine(_serverDir, "bin", "editormind-mcp-linux").Replace('\\', '/');
-#endif
+                    _serverPath  = Path.Combine(_serverDir, "bin", PlatformBinaryName).Replace('\\', '/');
                     return;
                 }
             }
@@ -203,6 +230,72 @@ namespace EditorMind
             }
             catch { /* network unavailable — use cached values */ }
 
+            Repaint();
+        }
+
+        // ── Binary download ───────────────────────────────────────────────
+        private async void DownloadBinaryAsync()
+        {
+            _isDownloading    = true;
+            _downloadProgress = 0f;
+            Repaint();
+
+            string binaryName = PlatformBinaryName;
+            string downloadUrl = k_GitHubDownloadBase + binaryName;
+            string destPath    = GetPersistentBinaryPath();
+
+            try
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(destPath));
+
+                using var client = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
+                client.DefaultRequestHeaders.Add("User-Agent", "editormind-mcp-unity");
+
+                using var response = await client.GetAsync(downloadUrl, HttpCompletionOption.ResponseHeadersRead);
+                response.EnsureSuccessStatusCode();
+
+                long total = response.Content.Headers.ContentLength ?? -1;
+                using var stream = await response.Content.ReadAsStreamAsync();
+                using var fs     = new FileStream(destPath, FileMode.Create, FileAccess.Write, FileShare.None);
+
+                byte[] buffer   = new byte[81920]; // 80 KB chunks
+                long   received = 0;
+                int    read;
+                while ((read = await stream.ReadAsync(buffer, 0, buffer.Length)) > 0)
+                {
+                    await fs.WriteAsync(buffer, 0, read);
+                    received += read;
+                    if (total > 0)
+                        _downloadProgress = (float)received / total;
+                    Repaint();
+                }
+
+#if !UNITY_EDITOR_WIN
+                var chmod = new ProcessStartInfo("chmod", $"+x \"{destPath}\"")
+                {
+                    UseShellExecute = false,
+                    CreateNoWindow  = true
+                };
+                using var chmodProc = Process.Start(chmod);
+                chmodProc?.WaitForExit(5000);
+#endif
+                _binaryDownloaded = true;
+                _statusMessage    = "Server binary downloaded successfully.";
+                _statusIsError    = false;
+            }
+            catch (Exception ex)
+            {
+                _statusMessage = $"Download failed: {ex.Message}";
+                _statusIsError = true;
+                UnityEngine.Debug.LogError("[EditorMind] Binary download failed: " + ex.Message);
+            }
+            finally
+            {
+                _isDownloading    = false;
+                _downloadProgress = 0f;
+            }
+
+            ResolveServerPath();
             Repaint();
         }
 
@@ -304,14 +397,36 @@ namespace EditorMind
             GUILayout.Space(4);
 
             // Server binary path
+            bool pathExists = File.Exists(_serverPath);
             EditorGUILayout.BeginHorizontal();
             GUILayout.Label("Server binary:", GUILayout.Width(100));
-            bool pathExists = File.Exists(_serverPath);
-            GUI.color = pathExists ? Color.green : Color.red;
-            GUILayout.Label(pathExists ? "Found" : "Not found", GUILayout.Width(70));
-            GUI.color = Color.white;
-            GUILayout.Label(_serverPath, EditorStyles.miniLabel);
+            if (_isDownloading)
+            {
+                GUILayout.Label("Downloading...", GUILayout.Width(90));
+            }
+            else if (pathExists)
+            {
+                GUI.color = Color.green;
+                GUILayout.Label("Found", GUILayout.Width(70));
+                GUI.color = Color.white;
+                GUILayout.Label(_serverPath, EditorStyles.miniLabel);
+            }
+            else
+            {
+                GUI.color = Color.red;
+                GUILayout.Label("Not found", GUILayout.Width(70));
+                GUI.color = Color.white;
+                if (GUILayout.Button("Download Server", GUILayout.Height(18)))
+                    DownloadBinaryAsync();
+            }
             EditorGUILayout.EndHorizontal();
+
+            if (_isDownloading)
+            {
+                var progressRect = EditorGUILayout.GetControlRect(false, 20);
+                EditorGUI.ProgressBar(progressRect, _downloadProgress,
+                    $"Downloading... {Mathf.RoundToInt(_downloadProgress * 100)}%");
+            }
 
             // Bridge ping
             EditorGUILayout.BeginHorizontal();
