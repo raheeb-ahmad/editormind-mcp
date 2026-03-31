@@ -1,3 +1,0 @@
-*.exe filter=lfs diff=lfs merge=lfs -text
-UnityPackage/Server~/bin/editormind-mcp-macos filter=lfs diff=lfs merge=lfs -text
-UnityPackage/Server~/bin/editormind-mcp-linux filter=lfs diff=lfs merge=lfs -text
