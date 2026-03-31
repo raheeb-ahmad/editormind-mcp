@@ -4,7 +4,7 @@
 
 **editormind-mcp** bridges AI coding agents with the Unity Editor. It exposes Unity Editor functionality as MCP tools, allowing an AI agent to inspect scenes, create GameObjects, read and write C# scripts, trigger compilation, and more — all through natural language.
 
-No Node.js required. No terminal commands. Just install and click Configure.
+No Node.js required. No terminal commands. Just install, download the server, and click Configure.
 
 Built to be AI-agnostic: Claude Code today, other MCP clients in the future.
 
@@ -13,18 +13,19 @@ Built to be AI-agnostic: Claude Code today, other MCP clients in the future.
 ## Demo
 
 ![EditorMind MCP Demo](docs/demo.gif)
+
 ---
 
 ## How it works
 
 ```
-Claude Code  ──(MCP stdio)──►  EditorMind binary (bundled)  ──(HTTP)──►  Unity Editor (C# Bridge)
+Claude Code  ──(MCP stdio)──►  EditorMind binary (downloaded on first use)  ──(HTTP)──►  Unity Editor (C# Bridge)
 ```
 
 - **Unity package** — an `[InitializeOnLoad]` C# class starts an HTTP listener on `localhost:6400` automatically when the Editor opens. Requests are processed on the main thread via a `ConcurrentQueue`, so responses arrive even when Unity is not in focus.
-- **Standalone binary** — a pre-compiled MCP server bundled inside the package. No Node.js or npm required on the user's machine.
-- **EditorMind window** — one-click setup via `Tools → EditorMind`. Auto-detects the binary and registers with Claude Code automatically.
-- **No internet required** — everything runs locally.
+- **Standalone binary** — a pre-compiled MCP server downloaded from GitHub releases on first use. No Node.js or npm required. Downloaded once, cached permanently.
+- **EditorMind window** — one-click download, one-click configure via `Tools → EditorMind`. Auto-detects platform and downloads the correct binary.
+- **No internet required after setup** — everything runs locally.
 
 ---
 
@@ -46,6 +47,7 @@ Claude Code  ──(MCP stdio)──►  EditorMind binary (bundled)  ──(HTT
 
 - Unity **2021.3**, **2022.3**, or **Unity 6** (URP or Built-in)
 - Claude Code CLI — install from [claude.ai/code](https://claude.ai/code)
+- Internet connection for first-time binary download
 
 No Node.js required.
 
@@ -71,17 +73,23 @@ Unity will compile automatically. Check the Console for:
 [EditorMind] Listening on http://localhost:6400/
 ```
 
-### Step 2 — Configure Claude Code
+### Step 2 — Download the server binary
 
 In Unity, open:
 
 **Tools → EditorMind**
 
-Wait for the Server binary and Bridge status to turn green, then click **Configure Claude Code**.
+The window will show **Server binary: Not found** on first install. Click **Download Server** — the correct binary for your platform will download automatically and show a progress bar.
+
+This only happens once. The binary is cached permanently on your machine.
+
+### Step 3 — Configure Claude Code
+
+Once the binary is downloaded and shows **Found**, click **Configure Claude Code**.
 
 The window automatically registers editormind-mcp with your Claude Code installation. No terminal commands needed.
 
-### Step 3 — Start using it
+### Step 4 — Start using it
 
 Click **Copy Project Path** in the EditorMind window, open a terminal at your Unity project root and run:
 
@@ -113,11 +121,20 @@ Are there any compile errors in my project?
 
 Open via **Tools → EditorMind**. The window shows:
 
-- **Server binary** — auto-detected path to the bundled executable
+- **Server binary** — download status and path to the cached executable
 - **Bridge** — live ping to the HTTP listener (updates every 2 seconds)
 - **Claude MCP** — whether Claude Code has been configured
+- **Update available** — notifies when a newer version is released with one-click update
 - **Available tools** — list of all 7 tools
 - **Copy Project Path** — copies your Unity project path for opening Claude Code
+
+---
+
+## Updates
+
+When a new version is available the EditorMind window will show an **Update available** banner with the version number. Click **Update** to open the releases page and **Release notes** to see what changed.
+
+The window checks for updates once per hour automatically.
 
 ---
 
@@ -140,33 +157,29 @@ editormind-mcp/
 │   │   ├── EditorMindBridge.cs     # HTTP listener, boots with Unity
 │   │   ├── EditorMindTools.cs      # Tool handlers
 │   │   └── EditorMindWindow.cs     # Tools → EditorMind setup window
-│   ├── Server~/                    # Bundled MCP server source (hidden from Unity importer)
+│   ├── Server~/                    # MCP server source (hidden from Unity importer)
 │   │   ├── index.js
-│   │   ├── package.json
-│   │   └── bin/
-│   │       ├── editormind-mcp-win.exe    # Windows binary
-│   │       ├── editormind-mcp-macos      # macOS binary
-│   │       └── editormind-mcp-linux      # Linux binary
+│   │   └── package.json
 │   └── package.json                # Unity Package Manager manifest
 ├── .github/
 │   └── workflows/
-│       └── build.yml               # CI/CD — auto-builds binaries on release
+│       └── build.yml               # CI/CD — builds binaries and attaches to releases
 ├── .gitignore
 └── README.md
 ```
+
+Binaries are not stored in the repo. They are built automatically via GitHub Actions on each release and downloaded by the EditorMind window on first use.
 
 ---
 
 ## CI/CD
 
-Binaries are automatically built for all three platforms via GitHub Actions on every release tag. To trigger a new build:
+Binaries are automatically built for Windows, macOS, and Linux via GitHub Actions on every release tag and attached to the GitHub release. To trigger a new release:
 
 ```bash
 git tag v1.x.x
 git push origin v1.x.x
 ```
-
-GitHub Actions compiles `editormind-mcp-win.exe`, `editormind-mcp-macos`, and `editormind-mcp-linux` using Bun and commits them back to the repo automatically.
 
 ---
 
