@@ -1,4 +1,4 @@
-name: Build and Commit Binaries
+name: Build and Release Binaries
 
 on:
   push:
@@ -47,49 +47,8 @@ jobs:
           name: ${{ matrix.output }}
           path: UnityPackage/Server~/bin/${{ matrix.output }}
 
-  commit-binaries:
-    needs: build
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          lfs: true
-
-      - name: Download editormind-mcp-win.exe
-        uses: actions/download-artifact@v4
-        with:
-          name: editormind-mcp-win.exe
-          path: UnityPackage/Server~/bin
-
-      - name: Download editormind-mcp-macos
-        uses: actions/download-artifact@v4
-        with:
-          name: editormind-mcp-macos
-          path: UnityPackage/Server~/bin
-
-      - name: Download editormind-mcp-linux
-        uses: actions/download-artifact@v4
-        with:
-          name: editormind-mcp-linux
-          path: UnityPackage/Server~/bin
-
-      - name: Show bin contents
-        run: ls -la UnityPackage/Server~/bin/
-
-      - name: Commit binaries
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add -f UnityPackage/Server~/bin/
-          git status
-          git diff --staged --quiet || git commit -m "ci: update binaries [skip ci]"
-          git push origin HEAD:main
-
   release:
-    needs: commit-binaries
+    needs: build
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
 
