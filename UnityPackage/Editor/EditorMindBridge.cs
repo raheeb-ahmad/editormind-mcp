@@ -18,6 +18,7 @@ namespace EditorMind
         static HttpListener _listener;
         static Thread _thread;
         static readonly ConcurrentQueue<Action> _mainThreadQueue = new ConcurrentQueue<Action>();
+        static bool _shuttingDown = false;
 
         static EditorMindBridge()
         {
@@ -48,14 +49,56 @@ namespace EditorMind
 
         static void StartListener()
         {
-            if (_listener != null)
-                return;
+            // Dispose any existing listener first so the port is released before we try to rebind.
+            DisposeListener();
 
+            TryStartOnce();
+        }
+
+        static void TryStartOnce()
+        {
+            // Wait up to 2 seconds (10 x 200 ms) for the port to become free.
+            for (int attempt = 0; attempt < 10; attempt++)
+            {
+                try
+                {
+                    var l = new HttpListener();
+                    l.Prefixes.Add(ListenPrefix);
+                    l.Start();
+
+                    // Committed — store and kick off the listen thread.
+                    _listener = l;
+                    _shuttingDown = false;
+
+                    _thread = new Thread(ListenLoop) { IsBackground = true, Name = "EditorMindBridge" };
+                    _thread.Start();
+
+                    Debug.Log("[EditorMind] Listening on " + ListenPrefix);
+                    return;
+                }
+                catch (HttpListenerException)
+                {
+                    // Port still occupied — wait and retry.
+                    Thread.Sleep(200);
+                }
+                catch (Exception ex)
+                {
+                    Debug.LogError("[EditorMind] Failed to start listener: " + ex.Message);
+                    _listener = null;
+                    return;
+                }
+            }
+
+            // All 10 attempts failed — try once more after a longer delay.
+            Thread.Sleep(500);
             try
             {
-                _listener = new HttpListener();
-                _listener.Prefixes.Add(ListenPrefix);
-                _listener.Start();
+                var l = new HttpListener();
+                l.Prefixes.Add(ListenPrefix);
+                l.Start();
+
+                _listener = l;
+                _shuttingDown = false;
 
                 _thread = new Thread(ListenLoop) { IsBackground = true, Name = "EditorMindBridge" };
                 _thread.Start();
@@ -64,25 +107,37 @@ namespace EditorMind
             }
             catch (Exception ex)
             {
-                Debug.LogError("[EditorMind] Failed to start listener: " + ex.Message);
+                Debug.LogError("[EditorMind] Failed to start listener after retries: " + ex.Message);
                 _listener = null;
             }
         }
 
-        static void StopListener()
+        static void DisposeListener()
         {
-            EditorApplication.quitting -= StopListener;
+            _shuttingDown = true;
 
-            try { _listener?.Stop(); } catch { /* ignored */ }
+            var l = _listener;
             _listener = null;
+
+            if (l != null)
+            {
+                try { if (l.IsListening) l.Stop(); } catch { /* ignored */ }
+                try { l.Close(); } catch { /* ignored */ }
+            }
 
             try { _thread?.Join(500); } catch { /* ignored */ }
             _thread = null;
         }
 
+        static void StopListener()
+        {
+            EditorApplication.quitting -= StopListener;
+            DisposeListener();
+        }
+
         static void ListenLoop()
         {
-            while (_listener != null && _listener.IsListening)
+            while (!_shuttingDown && _listener != null && _listener.IsListening)
             {
                 HttpListenerContext ctx;
                 try
